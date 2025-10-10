@@ -1,0 +1,7 @@
+# Ignora file e cartelle di sistema macOS
+.DS_Store
+
+# (opzionale) puoi aggiungere altre esclusioni comuni, ad esempio:
+# node_modules/
+# build/
+# .env
