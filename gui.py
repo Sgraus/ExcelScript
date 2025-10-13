@@ -9,11 +9,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_DIR = os.path.join(BASE_DIR, "input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 AUTO_PRIMARY_OPTION = "Automatico (più piccolo)"
+ADDRESS_MODE_OPTIONS = {
+    "Siatel (dettagliato)": "siatel",
+    "Siatel compatto": "compatto",
+}
 
 SCRIPTS = {
     "Unisci file": "unisci_file.py",
     "Dividi file": "spilit_file.py",
     "Merge file": "marge_file.py",
+    "Dividi indirizzi": "dividi_indirizzi.py",
 }
 
 
@@ -33,6 +38,8 @@ class ScriptRunnerGUI(tk.Tk):
 
         self.selected_script_key: str | None = None
         self.primary_file_var = tk.StringVar(value=AUTO_PRIMARY_OPTION)
+        default_address_mode = next(iter(ADDRESS_MODE_OPTIONS))
+        self.address_mode_var = tk.StringVar(value=default_address_mode)
 
         self._build_widgets()
         self.refresh_file_lists()
@@ -71,6 +78,22 @@ class ScriptRunnerGUI(tk.Tk):
         self.primary_combobox.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
         self.merge_options_frame.grid_remove()
 
+        self.address_options_frame = ttk.LabelFrame(
+            scripts_frame, text="Opzioni Dividi indirizzi"
+        )
+        self.address_options_frame.grid(
+            row=3, column=0, padx=5, pady=(0, 5), sticky="ew"
+        )
+        self.address_mode_combobox = ttk.Combobox(
+            self.address_options_frame,
+            textvariable=self.address_mode_var,
+            state="readonly",
+            values=list(ADDRESS_MODE_OPTIONS.keys()),
+            width=28,
+        )
+        self.address_mode_combobox.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        self.address_options_frame.grid_remove()
+
         # Input/output frame
         io_frame = ttk.Frame(main_frame)
         io_frame.grid(row=0, column=1, sticky="nsew")
@@ -107,6 +130,10 @@ class ScriptRunnerGUI(tk.Tk):
             self._update_primary_file_options()
         else:
             self.merge_options_frame.grid_remove()
+        if self.selected_script_key == "Dividi indirizzi":
+            self.address_options_frame.grid()
+        else:
+            self.address_options_frame.grid_remove()
 
     def execute_selected_script(self) -> None:
         if not self.selected_script_key:
@@ -124,6 +151,11 @@ class ScriptRunnerGUI(tk.Tk):
             if primary_choice and primary_choice != AUTO_PRIMARY_OPTION:
                 extra_args = ["--primary", primary_choice]
                 self.append_log(f"File principale selezionato: {primary_choice}\n")
+        elif self.selected_script_key == "Dividi indirizzi":
+            selected_label = self.address_mode_var.get()
+            mode_value = ADDRESS_MODE_OPTIONS.get(selected_label, "siatel")
+            extra_args = ["--mode", mode_value]
+            self.append_log(f"Modalità dividi indirizzi: {selected_label}\n")
         self.run_button.config(state=tk.DISABLED)
 
         thread = threading.Thread(
