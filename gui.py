@@ -36,6 +36,7 @@ class ScriptRunnerGUI(tk.Tk):
 
         self._build_widgets()
         self.refresh_file_lists()
+        self._center_window()
 
     def _build_widgets(self) -> None:
         main_frame = ttk.Frame(self, padding=10)
@@ -215,6 +216,16 @@ class ScriptRunnerGUI(tk.Tk):
         self.primary_combobox["values"] = options
         if current_value not in options:
             self.primary_file_var.set(AUTO_PRIMARY_OPTION)
+
+    def _center_window(self) -> None:
+        self.update_idletasks()
+        width = self.winfo_width() or self.winfo_reqwidth()
+        height = self.winfo_height() or self.winfo_reqheight()
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - width) // 2
+        y = (screen_height - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
 def main() -> None:
     ensure_directories_exist()
