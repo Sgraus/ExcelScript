@@ -8,6 +8,7 @@ from tkinter import messagebox, ttk
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_DIR = os.path.join(BASE_DIR, "input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+AUTO_PRIMARY_OPTION = "Automatico (più piccolo)"
 
 SCRIPTS = {
     "Unisci file": "unisci_file.py",
@@ -31,6 +32,7 @@ class ScriptRunnerGUI(tk.Tk):
         self.resizable(False, False)
 
         self.selected_script_key: str | None = None
+        self.primary_file_var = tk.StringVar(value=AUTO_PRIMARY_OPTION)
 
         self._build_widgets()
         self.refresh_file_lists()
@@ -56,6 +58,17 @@ class ScriptRunnerGUI(tk.Tk):
             state=tk.DISABLED,
         )
         self.run_button.grid(row=1, column=0, padx=5, pady=(0, 5), sticky="ew")
+
+        self.merge_options_frame = ttk.LabelFrame(scripts_frame, text="Opzioni Merge")
+        self.merge_options_frame.grid(row=2, column=0, padx=5, pady=(0, 5), sticky="ew")
+        self.primary_combobox = ttk.Combobox(
+            self.merge_options_frame,
+            textvariable=self.primary_file_var,
+            state="readonly",
+            width=28,
+        )
+        self.primary_combobox.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        self.merge_options_frame.grid_remove()
 
         # Input/output frame
         io_frame = ttk.Frame(main_frame)
@@ -88,6 +101,11 @@ class ScriptRunnerGUI(tk.Tk):
         self.run_button.config(state=tk.NORMAL)
         self.append_log(f"Script selezionato: {self.selected_script_key}\n")
         self.refresh_file_lists()
+        if self.selected_script_key == "Merge file":
+            self.merge_options_frame.grid()
+            self._update_primary_file_options()
+        else:
+            self.merge_options_frame.grid_remove()
 
     def execute_selected_script(self) -> None:
         if not self.selected_script_key:
@@ -99,17 +117,23 @@ class ScriptRunnerGUI(tk.Tk):
             return
 
         self.append_log(f"Esecuzione di: {self.selected_script_key}\n")
+        extra_args: list[str] = []
+        if self.selected_script_key == "Merge file":
+            primary_choice = self.primary_file_var.get()
+            if primary_choice and primary_choice != AUTO_PRIMARY_OPTION:
+                extra_args = ["--primary", primary_choice]
+                self.append_log(f"File principale selezionato: {primary_choice}\n")
         self.run_button.config(state=tk.DISABLED)
 
         thread = threading.Thread(
-            target=self._run_script, args=(script_path,), daemon=True
+            target=self._run_script, args=(script_path, extra_args), daemon=True
         )
         thread.start()
 
-    def _run_script(self, script_path: str) -> None:
+    def _run_script(self, script_path: str, extra_args: list[str]) -> None:
         try:
             result = subprocess.run(
-                [sys.executable, script_path],
+                [sys.executable, script_path, *extra_args],
                 capture_output=True,
                 text=True,
                 cwd=BASE_DIR,
@@ -153,6 +177,7 @@ class ScriptRunnerGUI(tk.Tk):
     def refresh_file_lists(self) -> None:
         self._populate_listbox(self.input_list, INPUT_DIR)
         self._populate_listbox(self.output_list, OUTPUT_DIR)
+        self._update_primary_file_options()
 
     def _populate_listbox(self, listbox: tk.Listbox, directory: str) -> None:
         try:
@@ -173,6 +198,23 @@ class ScriptRunnerGUI(tk.Tk):
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
 
+    def _update_primary_file_options(self) -> None:
+        if not hasattr(self, "primary_combobox"):
+            return
+        try:
+            entries = [
+                f
+                for f in sorted(os.listdir(INPUT_DIR))
+                if os.path.isfile(os.path.join(INPUT_DIR, f))
+                and os.path.splitext(f)[1].lower() in {".xlsx", ".xls"}
+            ]
+        except FileNotFoundError:
+            entries = []
+        options = [AUTO_PRIMARY_OPTION] + entries
+        current_value = self.primary_file_var.get()
+        self.primary_combobox["values"] = options
+        if current_value not in options:
+            self.primary_file_var.set(AUTO_PRIMARY_OPTION)
 
 def main() -> None:
     ensure_directories_exist()
