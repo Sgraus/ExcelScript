@@ -1,6 +1,10 @@
 # Ignora file e cartelle di sistema macOS
 .DS_Store
 
+# Ignora contenuto cartelle di lavoro
+input/
+output/
+
 # (opzionale) puoi aggiungere altre esclusioni comuni, ad esempio:
 # node_modules/
 # build/
