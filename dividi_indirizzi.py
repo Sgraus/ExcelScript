@@ -1,7 +1,6 @@
 import argparse
 import os
-import sys
-from typing import Literal
+from typing import Literal, Optional
 
 import pandas as pd
 
@@ -29,10 +28,28 @@ def parse_args() -> argparse.Namespace:
         default="siatel",
         help="Seleziona la modalità di divisione: 'siatel' (dettagliata) o 'compatto'.",
     )
+    parser.add_argument(
+        "--file",
+        help=(
+            "Percorso del file Excel da elaborare. Se non specificato viene usato "
+            "l'unico file presente nella cartella 'input'."
+        ),
+    )
     return parser.parse_args()
 
 
-def _select_input_file() -> str:
+def _select_input_file(manual_path: Optional[str]) -> str:
+    if manual_path:
+        absolute = os.path.abspath(manual_path)
+        if not os.path.isfile(absolute):
+            raise SystemExit(f"Errore: il file '{manual_path}' non esiste.")
+        if os.path.splitext(absolute)[1].lower() not in SUPPORTED_EXTS:
+            raise SystemExit(
+                f"Errore: il file '{manual_path}' non ha un'estensione supportata "
+                f"({', '.join(sorted(SUPPORTED_EXTS))})."
+            )
+        return absolute
+
     if not os.path.isdir(INPUT_DIR):
         raise SystemExit(f"Errore: la cartella di input non esiste: {INPUT_DIR}")
 
@@ -41,6 +58,7 @@ def _select_input_file() -> str:
         for f in os.listdir(INPUT_DIR)
         if os.path.splitext(f)[1].lower() in SUPPORTED_EXTS
     ]
+
     if not entries:
         raise SystemExit(
             "Errore: nessun file Excel trovato nella cartella 'input'. "
@@ -49,8 +67,9 @@ def _select_input_file() -> str:
     if len(entries) > 1:
         raise SystemExit(
             f"Errore: trovati {len(entries)} file Excel nella cartella 'input'. "
-            "Lascia un solo file da elaborare."
+            "Lascia un solo file da elaborare oppure specifica il percorso con --file."
         )
+
     return os.path.join(INPUT_DIR, entries[0])
 
 
@@ -100,7 +119,7 @@ def dividi_indirizzi(
 def main() -> None:
     args = parse_args()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    input_path = _select_input_file()
+    input_path = _select_input_file(args.file)
 
     try:
         df = pd.read_excel(input_path)
