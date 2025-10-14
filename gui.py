@@ -18,6 +18,8 @@ ADDRESS_MODE_OPTIONS = {
 SPLIT_HEADER_OPTIONS = {
     "Intestazione in tutti i file": "repeat",
     "Intestazione solo nel primo file": "first-only",
+    "Intestazione formattata (tutti i file)": "formatted",
+    "Intestazione formattata (solo primo file)": "formatted-first-only",
     "Nessuna intestazione": "none",
 }
 SPLIT_TARGET_BYTES = 3 * 1024 * 1024

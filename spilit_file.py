@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import re
 from typing import Optional
 
 import pandas as pd
@@ -12,7 +13,15 @@ SUPPORTED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv"}
 HEADER_MODE_REPEAT = "repeat"
 HEADER_MODE_FIRST_ONLY = "first-only"
 HEADER_MODE_NONE = "none"
-HEADER_MODE_CHOICES = (HEADER_MODE_REPEAT, HEADER_MODE_FIRST_ONLY, HEADER_MODE_NONE)
+HEADER_MODE_FORMATTED = "formatted"
+HEADER_MODE_FORMATTED_FIRST_ONLY = "formatted-first-only"
+HEADER_MODE_CHOICES = (
+    HEADER_MODE_REPEAT,
+    HEADER_MODE_FIRST_ONLY,
+    HEADER_MODE_NONE,
+    HEADER_MODE_FORMATTED,
+    HEADER_MODE_FORMATTED_FIRST_ONLY,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,9 +47,11 @@ def parse_args() -> argparse.Namespace:
         default=HEADER_MODE_REPEAT,
         help=(
             "Gestione dell'intestazione nei file generati: "
-            "'repeat' per ripeterla ovunque, "
-            "'first-only' per mantenerla solo nel primo file, "
-            "'none' per ometterla sempre."
+            "'repeat' per ripeterla ovunque; "
+            "'first-only' per mantenerla solo nel primo file; "
+            "'none' per ometterla sempre; "
+            "'formatted' per ripeterla ovunque dopo aver rimosso spazi e caratteri speciali; "
+            "'formatted-first-only' per usare l'intestazione ripulita solo nel primo file."
         ),
     )
     return parser.parse_args()
@@ -104,6 +115,24 @@ def _load_dataframe(file_path: str) -> tuple[pd.DataFrame, str | None]:
         raise SystemExit(f"Errore durante la lettura di '{file_path}': {exc}") from exc
 
 
+def _format_headers(columns: pd.Index | list[str]) -> list[str]:
+    formatted: list[str] = []
+    used: set[str] = set()
+    counts: dict[str, int] = {}
+
+    for position, column in enumerate(columns, start=1):
+        text = re.sub(r"[^0-9A-Za-z]", "", str(column))
+        if not text:
+            text = f"Colonna{position}"
+        base = text
+        while text in used:
+            counts[base] = counts.get(base, 0) + 1
+            text = f"{base}{counts[base]}"
+        used.add(text)
+        formatted.append(text)
+    return formatted
+
+
 def main() -> None:
     args = parse_args()
     file_path = _resolve_file(args.file)
@@ -121,12 +150,24 @@ def main() -> None:
     chunk_size = args.chunk_size
 
     total_chunks = (len(df) + chunk_size - 1) // chunk_size
+    format_header = args.header_mode in {
+        HEADER_MODE_FORMATTED,
+        HEADER_MODE_FORMATTED_FIRST_ONLY,
+    }
+    formatted_columns = _format_headers(df.columns) if format_header else None
 
     for index, start in enumerate(range(0, len(df), chunk_size), start=1):
         chunk = df.iloc[start : start + chunk_size].copy()
+        if format_header and formatted_columns is not None:
+            chunk.columns = formatted_columns
         output_file = os.path.join(OUTPUT_DIR, f"{index} di {total_chunks} {base_name}")
-        write_header = args.header_mode == HEADER_MODE_REPEAT or (
-            args.header_mode == HEADER_MODE_FIRST_ONLY and index == 1
+        write_header = (
+            args.header_mode in (HEADER_MODE_REPEAT, HEADER_MODE_FORMATTED)
+            or (
+                args.header_mode
+                in (HEADER_MODE_FIRST_ONLY, HEADER_MODE_FORMATTED_FIRST_ONLY)
+                and index == 1
+            )
         )
         try:
             if file_ext == ".csv":
