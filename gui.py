@@ -1,3 +1,4 @@
+import math
 import os
 import subprocess
 import sys
@@ -14,8 +15,20 @@ ADDRESS_MODE_OPTIONS = {
     "Siatel (dettagliato)": "siatel",
     "Siatel compatto": "compatto",
 }
+SPLIT_HEADER_OPTIONS = {
+    "Intestazione in tutti i file": "repeat",
+    "Intestazione solo nel primo file": "first-only",
+    "Nessuna intestazione": "none",
+}
+SPLIT_TARGET_BYTES = 3 * 1024 * 1024
 
 EXCEL_FILETYPES = [
+    ("File Excel", "*.xlsx *.xlsm *.xls"),
+    ("Tutti i file", "*.*"),
+]
+SPLIT_FILETYPES = [
+    ("File Excel o CSV", "*.xlsx *.xlsm *.xls *.csv"),
+    ("File CSV", "*.csv"),
     ("File Excel", "*.xlsx *.xlsm *.xls"),
     ("Tutti i file", "*.*"),
 ]
@@ -56,6 +69,9 @@ class ScriptRunnerGUI(tk.Tk):
         # Stato Dividi file
         self.split_file_var = tk.StringVar(value="")
         self.chunk_size_var = tk.StringVar(value="100")
+        self.split_header_mode_var = tk.StringVar(value=next(iter(SPLIT_HEADER_OPTIONS)))
+        self.split_suggestion_var = tk.StringVar(value="")
+        self._split_suggestion_file: str | None = None
 
         # Stato Merge file
         self.merge_files: list[str | None] = [None, None]
@@ -206,11 +222,27 @@ class ScriptRunnerGUI(tk.Tk):
             width=10,
         )
         self.chunk_size_spinbox.grid(row=0, column=1, sticky="w")
+        ttk.Label(
+            chunk_frame,
+            textvariable=self.split_suggestion_var,
+            foreground="#555555",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+        header_frame = ttk.Frame(frame)
+        header_frame.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(header_frame, text="Gestione intestazione:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Combobox(
+            header_frame,
+            state="readonly",
+            width=30,
+            textvariable=self.split_header_mode_var,
+            values=list(SPLIT_HEADER_OPTIONS.keys()),
+        ).grid(row=0, column=1, sticky="w")
 
         self.split_run_button = ttk.Button(
             frame, text="Esegui divisione", command=self._run_split_script
         )
-        self.split_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
+        self.split_run_button.grid(row=5, column=0, pady=(12, 0), sticky="e")
 
     def _build_merge_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=12)
@@ -332,12 +364,16 @@ class ScriptRunnerGUI(tk.Tk):
 
     def _choose_split_file(self) -> None:
         path = filedialog.askopenfilename(
-            title="Seleziona file da dividere", filetypes=EXCEL_FILETYPES
+            title="Seleziona file da dividere", filetypes=SPLIT_FILETYPES
         )
         if path:
             absolute = os.path.abspath(path)
             self.split_file_var.set(absolute)
             self.split_file_label.config(text=self._friendly_name(absolute))
+            self._request_split_suggestion(absolute)
+        else:
+            self._split_suggestion_file = None
+            self.split_suggestion_var.set("")
 
     def _choose_merge_file(self, index: int) -> None:
         path = filedialog.askopenfilename(
@@ -406,7 +442,9 @@ class ScriptRunnerGUI(tk.Tk):
         if chunk_size <= 0:
             messagebox.showerror("Dividi file", "Il numero di righe deve essere positivo.")
             return
-        args = ["--file", file_path, "--chunk-size", str(chunk_size)]
+        header_display = self.split_header_mode_var.get()
+        header_mode = SPLIT_HEADER_OPTIONS.get(header_display, "repeat")
+        args = ["--file", file_path, "--chunk-size", str(chunk_size), "--header-mode", header_mode]
         self._execute_script("Dividi file", args, self.split_run_button)
 
     def _run_merge_script(self) -> None:
@@ -451,6 +489,85 @@ class ScriptRunnerGUI(tk.Tk):
             daemon=True,
         )
         thread.start()
+
+    def _request_split_suggestion(self, path: str) -> None:
+        self._split_suggestion_file = path
+        self.split_suggestion_var.set("Calcolo suggerimento per 3 MB…")
+        thread = threading.Thread(
+            target=self._compute_split_suggestion, args=(path,), daemon=True
+        )
+        thread.start()
+
+    def _compute_split_suggestion(self, path: str) -> None:
+        suggestion = self._generate_split_suggestion(path)
+        self.after(0, self._apply_split_suggestion, path, suggestion)
+
+    def _apply_split_suggestion(self, path: str, message: str) -> None:
+        if path != self._split_suggestion_file:
+            return
+        self.split_suggestion_var.set(message)
+
+    def _generate_split_suggestion(self, path: str) -> str:
+        try:
+            file_size = os.path.getsize(path)
+        except OSError:
+            return "Suggerimento 3 MB: non disponibile."
+        data_rows = self._count_data_rows(path)
+        if not data_rows:
+            return "Suggerimento 3 MB: non disponibile."
+        average_row_bytes = file_size / max(data_rows, 1)
+        if average_row_bytes <= 0:
+            return "Suggerimento 3 MB: non disponibile."
+
+        suggested_rows = max(int(SPLIT_TARGET_BYTES / average_row_bytes), 1)
+        suggested_rows = min(suggested_rows, data_rows)
+        approx_chunks = max(math.ceil(data_rows / suggested_rows), 1)
+        approx_size_mb = (average_row_bytes * suggested_rows) / (1024 * 1024)
+
+        return (
+            f"Suggerimento 3 MB: ~{suggested_rows} righe per file "
+            f"(~{approx_chunks} file totali, ~{approx_size_mb:.1f} MB ciascuno)"
+        )
+
+    def _count_data_rows(self, path: str) -> int | None:
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".csv":
+            return self._count_csv_rows(path)
+        if ext in {".xlsx", ".xlsm", ".xls"}:
+            return self._count_excel_rows(path)
+        return None
+
+    def _count_csv_rows(self, path: str) -> int | None:
+        try:
+            with open(path, "rb") as handle:
+                total_rows = sum(1 for _ in handle)
+        except OSError:
+            return None
+        data_rows = total_rows - 1 if total_rows > 0 else 0
+        return data_rows if data_rows > 0 else None
+
+    def _count_excel_rows(self, path: str) -> int | None:
+        try:
+            import openpyxl
+
+            workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            sheet = workbook.active
+            max_row = sheet.max_row or 0
+            workbook.close()
+            data_rows = max(max_row - 1, 0)
+            if data_rows > 0:
+                return data_rows
+        except Exception:
+            pass
+
+        try:
+            import pandas as pd
+
+            dataframe = pd.read_excel(path, usecols=[0])
+            data_rows = len(dataframe)
+            return data_rows if data_rows > 0 else None
+        except Exception:
+            return None
 
     def _run_script_thread(
         self, script_key: str, script_path: str, args: list[str], button: ttk.Button
