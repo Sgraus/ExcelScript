@@ -28,6 +28,10 @@ EXCEL_FILETYPES = [
     ("File Excel", "*.xlsx *.xlsm *.xls"),
     ("Tutti i file", "*.*"),
 ]
+CSV_FILETYPES = [
+    ("File CSV", "*.csv"),
+    ("Tutti i file", "*.*"),
+]
 SPLIT_FILETYPES = [
     ("File Excel o CSV", "*.xlsx *.xlsm *.xls *.csv"),
     ("File CSV", "*.csv"),
@@ -35,11 +39,17 @@ SPLIT_FILETYPES = [
     ("Tutti i file", "*.*"),
 ]
 
+CONVERT_DIRECTION_OPTIONS = {
+    "Excel -> CSV": ("csv", EXCEL_FILETYPES),
+    "CSV -> Excel": ("excel", CSV_FILETYPES),
+}
+
 SCRIPTS = {
     "Unisci file": "unisci_file.py",
     "Dividi file": "spilit_file.py",
     "Merge file": "marge_file.py",
     "Dividi indirizzi": "dividi_indirizzi.py",
+    "Converti file": "converti_file.py",
 }
 
 
@@ -80,6 +90,14 @@ class ScriptRunnerGUI(tk.Tk):
         self.merge_labels: list[ttk.Label] = []
         self.merge_primary_var = tk.StringVar(value=AUTO_PRIMARY_OPTION)
         self.merge_primary_options: dict[str, str] = {AUTO_PRIMARY_OPTION: AUTO_PRIMARY_OPTION}
+
+        # Stato Converti file
+        self.convert_files: list[str] = []
+        self.convert_direction_var = tk.StringVar(value=next(iter(CONVERT_DIRECTION_OPTIONS)))
+        self.convert_csv_delimiter_var = tk.StringVar(value=",")
+        self.convert_delimiter_entry = None
+        self.convert_listbox = None
+        self.convert_run_button = None
 
         # Stato Dividi indirizzi
         default_address_mode = next(iter(ADDRESS_MODE_OPTIONS))
@@ -122,6 +140,7 @@ class ScriptRunnerGUI(tk.Tk):
         self._build_unisci_tab(notebook)
         self._build_split_tab(notebook)
         self._build_merge_tab(notebook)
+        self._build_convert_tab(notebook)
         self._build_address_tab(notebook)
 
         log_frame = ttk.LabelFrame(main_frame, text="Log esecuzione")
@@ -290,6 +309,76 @@ class ScriptRunnerGUI(tk.Tk):
         )
         self.merge_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
 
+    def _build_convert_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Converti file")
+
+        ttk.Label(
+            frame,
+            text="Seleziona i file da convertire e il formato di destinazione.",
+        ).grid(row=0, column=0, sticky="w")
+
+        direction_frame = ttk.Frame(frame)
+        direction_frame.grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(direction_frame, text="Tipo conversione:").grid(row=0, column=0, padx=(0, 6))
+        direction_combobox = ttk.Combobox(
+            direction_frame,
+            state="readonly",
+            width=25,
+            textvariable=self.convert_direction_var,
+            values=list(CONVERT_DIRECTION_OPTIONS.keys()),
+        )
+        direction_combobox.grid(row=0, column=1, sticky="w")
+        direction_combobox.bind("<<ComboboxSelected>>", self._on_convert_direction_changed)
+
+        list_frame = ttk.Frame(frame)
+        list_frame.grid(row=2, column=0, sticky="nsew", pady=8)
+        list_frame.columnconfigure(0, weight=1)
+
+        self.convert_listbox = tk.Listbox(list_frame, height=8, activestyle="dotbox")
+        self.convert_listbox.grid(row=0, column=0, sticky="nsew")
+
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.convert_listbox.yview)
+        list_scroll.grid(row=0, column=1, sticky="ns")
+        self.convert_listbox.configure(yscrollcommand=list_scroll.set)
+
+        buttons_frame = ttk.Frame(frame)
+        buttons_frame.grid(row=3, column=0, sticky="w")
+
+        ttk.Button(
+            buttons_frame,
+            text="Aggiungi file…",
+            command=self._add_convert_files,
+        ).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(
+            buttons_frame,
+            text="Rimuovi selezionato",
+            command=self._remove_convert_selected,
+        ).grid(row=0, column=1, padx=(0, 6))
+        ttk.Button(
+            buttons_frame,
+            text="Svuota elenco",
+            command=self._clear_convert_files,
+        ).grid(row=0, column=2)
+
+        delimiter_frame = ttk.Frame(frame)
+        delimiter_frame.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(delimiter_frame, text="Delimitatore CSV:").grid(row=0, column=0, padx=(0, 6))
+        self.convert_delimiter_entry = ttk.Entry(
+            delimiter_frame,
+            width=5,
+            textvariable=self.convert_csv_delimiter_var,
+        )
+        self.convert_delimiter_entry.grid(row=0, column=1, sticky="w")
+
+        self.convert_run_button = ttk.Button(
+            frame, text="Esegui conversione", command=self._run_convert_script
+        )
+        self.convert_run_button.grid(row=5, column=0, pady=(12, 0), sticky="e")
+
+        self._on_convert_direction_changed()
+
     def _build_address_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=12)
         frame.columnconfigure(0, weight=1)
@@ -363,6 +452,60 @@ class ScriptRunnerGUI(tk.Tk):
         self.unisci_listbox.delete(0, tk.END)
         for path in self.unisci_files:
             self.unisci_listbox.insert(tk.END, path)
+
+    def _add_convert_files(self) -> None:
+        target, filetypes = self._get_convert_config()
+        dialog_title = (
+            "Seleziona file Excel da convertire in CSV"
+            if target == "csv"
+            else "Seleziona file CSV da convertire in Excel"
+        )
+        paths = filedialog.askopenfilenames(title=dialog_title, filetypes=filetypes)
+        if not paths:
+            return
+        updated = False
+        for path in paths:
+            normalized = os.path.abspath(path)
+            if normalized not in self.convert_files:
+                self.convert_files.append(normalized)
+                updated = True
+        if updated:
+            self._refresh_convert_list()
+
+    def _remove_convert_selected(self) -> None:
+        if not self.convert_listbox:
+            return
+        selection = self.convert_listbox.curselection()
+        if not selection:
+            messagebox.showinfo("Converti file", "Seleziona un elemento da rimuovere.")
+            return
+        index = selection[0]
+        del self.convert_files[index]
+        self._refresh_convert_list()
+
+    def _clear_convert_files(self) -> None:
+        self.convert_files.clear()
+        self._refresh_convert_list()
+
+    def _refresh_convert_list(self) -> None:
+        if not self.convert_listbox:
+            return
+        self.convert_listbox.delete(0, tk.END)
+        for path in self.convert_files:
+            self.convert_listbox.insert(tk.END, path)
+
+    def _get_convert_config(self):
+        display = self.convert_direction_var.get()
+        target, filetypes = CONVERT_DIRECTION_OPTIONS.get(
+            display, next(iter(CONVERT_DIRECTION_OPTIONS.values()))
+        )
+        return target, filetypes
+
+    def _on_convert_direction_changed(self, *_: object) -> None:
+        target, _ = self._get_convert_config()
+        if self.convert_delimiter_entry:
+            state = tk.NORMAL if target == "csv" else tk.DISABLED
+            self.convert_delimiter_entry.config(state=state)
 
     def _choose_split_file(self) -> None:
         path = filedialog.askopenfilename(
@@ -459,6 +602,19 @@ class ScriptRunnerGUI(tk.Tk):
         if primary_value and primary_value != AUTO_PRIMARY_OPTION:
             args.extend(["--primary", primary_value])
         self._execute_script("Merge file", args, self.merge_run_button)
+
+    def _run_convert_script(self) -> None:
+        if not self.convert_files:
+            messagebox.showwarning("Converti file", "Seleziona almeno un file da convertire.")
+            return
+        if not self.convert_run_button:
+            return
+        target, _ = self._get_convert_config()
+        args = ["--files", *self.convert_files, "--to", target]
+        if target == "csv":
+            delimiter = self.convert_csv_delimiter_var.get().strip() or ","
+            args.extend(["--csv-delimiter", delimiter])
+        self._execute_script("Converti file", args, self.convert_run_button)
 
     def _run_address_script(self) -> None:
         file_path = self.address_file_var.get().strip()
