@@ -135,7 +135,12 @@ def _convert_excel_to_csv(file_path: str, output_dir: str, delimiter: str) -> st
     output_path = os.path.join(output_dir, f"{base_name}.csv")
 
     try:
-        dataframe.to_csv(output_path, index=False, sep=delimiter)
+        dataframe.to_csv(
+            output_path,
+            index=False,
+            sep=delimiter,
+            float_format="%.15g",  # evita suffisso .0 per valori numerici interi
+        )
     except Exception as exc:  # pragma: no cover - dipende dai file utente
         raise SystemExit(f"Errore durante il salvataggio di '{output_path}': {exc}") from exc
 
