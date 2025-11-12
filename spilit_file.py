@@ -6,10 +6,16 @@ from typing import Optional
 
 import pandas as pd
 
+try:  # pragma: no cover - dipende dall'ambiente dell'utente
+    from openpyxl import load_workbook
+except ImportError:  # pragma: no cover - openpyxl potrebbe non essere installato
+    load_workbook = None
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_DIR = os.path.join(BASE_DIR, "input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 SUPPORTED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv"}
+EXCEL_WITH_FORMATS = {".xlsx", ".xlsm"}
 HEADER_MODE_REPEAT = "repeat"
 HEADER_MODE_FIRST_ONLY = "first-only"
 HEADER_MODE_NONE = "none"
@@ -133,6 +139,56 @@ def _format_headers(columns: pd.Index | list[str]) -> list[str]:
     return formatted
 
 
+def _extract_excel_column_formats(file_path: str) -> list[str]:
+    """Legge i formati numerici delle colonne di un file Excel."""
+    if load_workbook is None:
+        return []
+    try:
+        workbook = load_workbook(file_path, read_only=True, data_only=False)
+    except Exception:  # pragma: no cover - dipende dai file utente
+        return []
+
+    sheet = workbook.active
+    column_formats: list[str] = []
+    for column in range(1, sheet.max_column + 1):
+        detected_format: str | None = None
+        for row in range(1, sheet.max_row + 1):
+            cell = sheet.cell(row=row, column=column)
+            if cell.value is None:
+                continue
+            fmt = cell.number_format or ""
+            if fmt.lower() != "general":
+                detected_format = fmt
+                break
+        column_formats.append(detected_format or "")
+
+    workbook.close()
+    return column_formats
+
+
+def _apply_excel_column_formats(
+    file_path: str, column_formats: list[str], header_present: bool
+) -> None:
+    if load_workbook is None or not column_formats:
+        return
+    try:
+        workbook = load_workbook(file_path)
+    except Exception:  # pragma: no cover - dipende dai file utente
+        return
+
+    sheet = workbook.active
+    start_row = 2 if header_present else 1
+    max_row = sheet.max_row
+    for idx, fmt in enumerate(column_formats, start=1):
+        if not fmt:
+            continue
+        for row in range(start_row, max_row + 1):
+            sheet.cell(row=row, column=idx).number_format = fmt
+
+    workbook.save(file_path)
+    workbook.close()
+
+
 def main() -> None:
     args = parse_args()
     file_path = _resolve_file(args.file)
@@ -148,6 +204,9 @@ def main() -> None:
     base_name = os.path.basename(file_path)
     file_ext = os.path.splitext(base_name)[1].lower()
     chunk_size = args.chunk_size
+    column_formats: list[str] = []
+    if file_ext in EXCEL_WITH_FORMATS:
+        column_formats = _extract_excel_column_formats(file_path)
 
     total_chunks = (len(df) + chunk_size - 1) // chunk_size
     format_header = args.header_mode in {
@@ -179,6 +238,10 @@ def main() -> None:
                 )
             else:
                 chunk.to_excel(output_file, index=False, header=write_header)
+                if column_formats:
+                    _apply_excel_column_formats(
+                        output_file, column_formats, header_present=write_header
+                    )
         except Exception as exc:  # pragma: no cover - dipende dai file utente
             raise SystemExit(f"Errore durante il salvataggio di '{output_file}': {exc}") from exc
         print(f"Creato: {output_file}")
