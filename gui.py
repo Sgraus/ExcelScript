@@ -15,6 +15,10 @@ ADDRESS_MODE_OPTIONS = {
     "Siatel (dettagliato)": "siatel",
     "Siatel compatto": "compatto",
 }
+COMPARE_MODE_OPTIONS = {
+    "Siatel compatto": "compatto",
+    "Siatel (dettagliato)": "dettagliato",
+}
 SPLIT_HEADER_OPTIONS = {
     "Intestazione in tutti i file": "repeat",
     "Intestazione solo nel primo file": "first-only",
@@ -50,6 +54,7 @@ SCRIPTS = {
     "Merge file": "marge_file.py",
     "Dividi indirizzi": "dividi_indirizzi.py",
     "Converti file": "converti_file.py",
+    "Confronta indirizzi": "confronta_indirizzi.py",
 }
 
 
@@ -90,6 +95,15 @@ class ScriptRunnerGUI(tk.Tk):
         self.merge_labels: list[ttk.Label] = []
         self.merge_primary_var = tk.StringVar(value=AUTO_PRIMARY_OPTION)
         self.merge_primary_options: dict[str, str] = {AUTO_PRIMARY_OPTION: AUTO_PRIMARY_OPTION}
+
+        # Stato Confronta indirizzi
+        self.compare_files: list[str | None] = [None, None]
+        self.compare_labels: list[ttk.Label] = []
+        default_compare_mode = next(iter(COMPARE_MODE_OPTIONS))
+        self.compare_mode_var = tk.StringVar(value=default_compare_mode)
+        self.compare_map_var = tk.StringVar(value="")
+        self.compare_map_label: ttk.Label | None = None
+        self.compare_run_button: ttk.Button | None = None
 
         # Stato Converti file
         self.convert_files: list[str] = []
@@ -140,6 +154,7 @@ class ScriptRunnerGUI(tk.Tk):
         self._build_unisci_tab(notebook)
         self._build_split_tab(notebook)
         self._build_merge_tab(notebook)
+        self._build_compare_tab(notebook)
         self._build_convert_tab(notebook)
         self._build_address_tab(notebook)
 
@@ -308,6 +323,72 @@ class ScriptRunnerGUI(tk.Tk):
             frame, text="Esegui merge", command=self._run_merge_script
         )
         self.merge_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
+
+    def _build_compare_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Confronta indirizzi")
+
+        ttk.Label(
+            frame,
+            text="Confronta gli indirizzi dei due file sulla colonna 'match'.",
+        ).grid(row=0, column=0, sticky="w")
+
+        for idx in range(2):
+            row = idx + 1
+            file_frame = ttk.Frame(frame)
+            file_frame.grid(row=row, column=0, sticky="w", pady=6)
+            ttk.Label(file_frame, text=f"File {'A' if idx == 0 else 'B'}:").grid(
+                row=0, column=0, padx=(0, 6)
+            )
+            label = ttk.Label(file_frame, text="(nessun file)")
+            label.grid(row=0, column=1, sticky="w")
+            self.compare_labels.append(label)
+            ttk.Button(
+                file_frame,
+                text="Scegli…",
+                command=lambda index=idx: self._choose_compare_file(index),
+            ).grid(row=0, column=2, padx=(8, 0))
+
+        mode_frame = ttk.Frame(frame)
+        mode_frame.grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(mode_frame, text="Modalità di indirizzo:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Combobox(
+            mode_frame,
+            state="readonly",
+            width=28,
+            textvariable=self.compare_mode_var,
+            values=list(COMPARE_MODE_OPTIONS.keys()),
+        ).grid(row=0, column=1, sticky="w")
+
+        comune_frame = ttk.LabelFrame(frame, text="Mappa equivalenze comuni (opzionale)")
+        comune_frame.grid(row=4, column=0, sticky="we", pady=(10, 0))
+        comune_frame.columnconfigure(1, weight=1)
+        ttk.Label(comune_frame, text="File selezionato:").grid(row=0, column=0, padx=(0, 6))
+        self.compare_map_label = ttk.Label(comune_frame, text="(nessun file)")
+        self.compare_map_label.grid(row=0, column=1, sticky="w")
+        buttons = ttk.Frame(comune_frame)
+        buttons.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Button(
+            buttons,
+            text="Scegli CSV…",
+            command=self._choose_compare_map_file,
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            buttons,
+            text="Rimuovi",
+            command=self._clear_compare_map_file,
+        ).grid(row=0, column=1)
+        ttk.Label(
+            comune_frame,
+            text="Se non selezioni nulla viene usato automaticamente 'comuni_equivalenze.csv'.",
+            foreground="#555555",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+        self.compare_run_button = ttk.Button(
+            frame, text="Esegui confronto", command=self._run_compare_script
+        )
+        self.compare_run_button.grid(row=5, column=0, pady=(12, 0), sticky="e")
 
     def _build_convert_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=12)
@@ -543,6 +624,30 @@ class ScriptRunnerGUI(tk.Tk):
             self.merge_primary_var.set(AUTO_PRIMARY_OPTION)
         self.merge_primary_combobox.configure(values=options)
 
+    def _choose_compare_file(self, index: int) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file con indirizzi", filetypes=EXCEL_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.compare_files[index] = absolute
+            self.compare_labels[index].config(text=self._friendly_name(absolute))
+
+    def _choose_compare_map_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona CSV equivalenze comuni", filetypes=CSV_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.compare_map_var.set(absolute)
+            if self.compare_map_label:
+                self.compare_map_label.config(text=self._friendly_name(absolute))
+
+    def _clear_compare_map_file(self) -> None:
+        self.compare_map_var.set("")
+        if self.compare_map_label:
+            self.compare_map_label.config(text="(nessun file)")
+
     def _choose_address_file(self) -> None:
         path = filedialog.askopenfilename(
             title="Seleziona file con indirizzi", filetypes=EXCEL_FILETYPES
@@ -602,6 +707,22 @@ class ScriptRunnerGUI(tk.Tk):
         if primary_value and primary_value != AUTO_PRIMARY_OPTION:
             args.extend(["--primary", primary_value])
         self._execute_script("Merge file", args, self.merge_run_button)
+
+    def _run_compare_script(self) -> None:
+        if not all(self.compare_files):
+            messagebox.showwarning(
+                "Confronta indirizzi", "Seleziona entrambi i file da confrontare."
+            )
+            return
+        if not self.compare_run_button:
+            return
+        mode_label = self.compare_mode_var.get()
+        mode_value = COMPARE_MODE_OPTIONS.get(mode_label, "compatto")
+        args = ["--files", *(self.compare_files[0:2]), "--mode", mode_value]
+        comune_map = self.compare_map_var.get().strip()
+        if comune_map:
+            args.extend(["--comune-map", comune_map])
+        self._execute_script("Confronta indirizzi", args, self.compare_run_button)
 
     def _run_convert_script(self) -> None:
         if not self.convert_files:
