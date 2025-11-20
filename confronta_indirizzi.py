@@ -221,7 +221,7 @@ def _find_comune_columns(df: pd.DataFrame, filename: str) -> List[str]:
     return comune_cols
 
 
-def _prepare_table(path: str, config: ModeConfig) -> PreparedTable:
+def _prepare_table(path: str, config: ModeConfig, *, include_all_columns: bool = False) -> PreparedTable:
     dataframe = _read_dataframe(path)
     filename = os.path.basename(path)
     comune_columns = _find_comune_columns(dataframe, filename)
@@ -232,13 +232,14 @@ def _prepare_table(path: str, config: ModeConfig) -> PreparedTable:
             f"Errore: nel file '{filename}' mancano le colonne richieste per la modalità selezionata: {readable}."
         )
 
-    selected_cols = ["match"] + list(comune_columns) + list(config.address_columns)
+    if include_all_columns:
+        other_columns = [col for col in dataframe.columns if col != "match"]
+    else:
+        other_columns = list(comune_columns) + list(config.address_columns)
+    selected_cols = ["match"] + other_columns
     subset = dataframe.loc[:, selected_cols].copy()
     label = _normalize_label(path)
-    rename_map = {
-        col: col if col == "match" else f"{col}_{label}"
-        for col in subset.columns
-    }
+    rename_map = {col: col if col == "match" else f"{col}_{label}" for col in subset.columns}
     renamed = subset.rename(columns=rename_map)
 
     comune_renamed = [rename_map[col] for col in comune_columns]
@@ -464,10 +465,10 @@ def main() -> None:
     comune_resolver = _load_comune_resolver(args.comune_map)
 
     selected_files = _resolve_files(args)
-    left_table = _prepare_table(selected_files[0], config)
+    left_table = _prepare_table(selected_files[0], config, include_all_columns=True)
     right_table = _prepare_table(selected_files[1], config)
 
-    merged = left_table.dataframe.merge(right_table.dataframe, on="match", how="inner")
+    merged = left_table.dataframe.merge(right_table.dataframe, on="match", how="left")
     if merged.empty:
         raise SystemExit(
             "Nessuna riga con valori di 'match' presenti in entrambi i file. "
@@ -476,13 +477,9 @@ def main() -> None:
 
     flag_df = _build_flags(merged, left_table, right_table, comune_resolver)
 
-    ordered_columns = (
-        ["match"]
-        + list(left_table.comune_columns)
-        + list(right_table.comune_columns)
-        + list(left_table.address_columns)
-        + list(right_table.address_columns)
-    )
+    ordered_columns = ["match"] + [
+        column for column in left_table.dataframe.columns if column != "match"
+    ] + [column for column in right_table.dataframe.columns if column not in {"match"}]
 
     output_df = merged.loc[:, ordered_columns].copy()
     for column in FLAG_COLUMNS:
