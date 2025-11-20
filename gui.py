@@ -19,6 +19,7 @@ COMPARE_MODE_OPTIONS = {
     "Siatel compatto": "compatto",
     "Siatel (dettagliato)": "dettagliato",
 }
+STRADARIO_MODE_OPTIONS = dict(COMPARE_MODE_OPTIONS)
 SPLIT_HEADER_OPTIONS = {
     "Intestazione in tutti i file": "repeat",
     "Intestazione solo nel primo file": "first-only",
@@ -55,6 +56,7 @@ SCRIPTS = {
     "Dividi indirizzi": "dividi_indirizzi.py",
     "Converti file": "converti_file.py",
     "Confronta indirizzi": "confronta_indirizzi.py",
+    "Associa stradario": "associa_stradario.py",
 }
 
 
@@ -104,6 +106,18 @@ class ScriptRunnerGUI(tk.Tk):
         self.compare_map_var = tk.StringVar(value="")
         self.compare_map_label: ttk.Label | None = None
         self.compare_run_button: ttk.Button | None = None
+
+        # Stato Associa stradario
+        default_stradario_mode = next(iter(STRADARIO_MODE_OPTIONS))
+        self.stradario_addresses_var = tk.StringVar(value="")
+        self.stradario_stradario_var = tk.StringVar(value="")
+        self.stradario_mode_var = tk.StringVar(value=default_stradario_mode)
+        self.stradario_output_var = tk.StringVar(value="")
+        self.stradario_comune_map_var = tk.StringVar(value="")
+        self.stradario_address_label: ttk.Label | None = None
+        self.stradario_stradario_label: ttk.Label | None = None
+        self.stradario_comune_label: ttk.Label | None = None
+        self.stradario_run_button: ttk.Button | None = None
 
         # Stato Converti file
         self.convert_files: list[str] = []
@@ -155,6 +169,7 @@ class ScriptRunnerGUI(tk.Tk):
         self._build_split_tab(notebook)
         self._build_merge_tab(notebook)
         self._build_compare_tab(notebook)
+        self._build_stradario_tab(notebook)
         self._build_convert_tab(notebook)
         self._build_address_tab(notebook)
 
@@ -389,6 +404,89 @@ class ScriptRunnerGUI(tk.Tk):
             frame, text="Esegui confronto", command=self._run_compare_script
         )
         self.compare_run_button.grid(row=5, column=0, pady=(12, 0), sticky="e")
+
+    def _build_stradario_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Associa stradario")
+
+        ttk.Label(
+            frame,
+            text="Seleziona il file con gli indirizzi divisi e lo stradario con CODICE_VIA.",
+        ).grid(row=0, column=0, sticky="w")
+
+        address_frame = ttk.Frame(frame)
+        address_frame.grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Label(address_frame, text="File indirizzi:").grid(row=0, column=0, padx=(0, 6))
+        self.stradario_address_label = ttk.Label(address_frame, text="(nessun file)")
+        self.stradario_address_label.grid(row=0, column=1, sticky="w")
+        ttk.Button(
+            address_frame,
+            text="Scegli…",
+            command=self._choose_stradario_addresses_file,
+        ).grid(row=0, column=2, padx=(8, 0))
+
+        strad_frame = ttk.Frame(frame)
+        strad_frame.grid(row=2, column=0, sticky="w", pady=6)
+        ttk.Label(strad_frame, text="File stradario:").grid(row=0, column=0, padx=(0, 6))
+        self.stradario_stradario_label = ttk.Label(strad_frame, text="(nessun file)")
+        self.stradario_stradario_label.grid(row=0, column=1, sticky="w")
+        ttk.Button(
+            strad_frame,
+            text="Scegli…",
+            command=self._choose_stradario_stradario_file,
+        ).grid(row=0, column=2, padx=(8, 0))
+
+        mode_frame = ttk.Frame(frame)
+        mode_frame.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(mode_frame, text="Modalità indirizzi:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Combobox(
+            mode_frame,
+            state="readonly",
+            width=28,
+            textvariable=self.stradario_mode_var,
+            values=list(STRADARIO_MODE_OPTIONS.keys()),
+        ).grid(row=0, column=1, sticky="w")
+
+        comune_frame = ttk.LabelFrame(frame, text="Mappa equivalenze comuni (opzionale)")
+        comune_frame.grid(row=4, column=0, sticky="we", pady=(10, 0))
+        comune_frame.columnconfigure(1, weight=1)
+        ttk.Label(comune_frame, text="File selezionato:").grid(row=0, column=0, padx=(0, 6))
+        self.stradario_comune_label = ttk.Label(comune_frame, text="(nessun file)")
+        self.stradario_comune_label.grid(row=0, column=1, sticky="w")
+        comune_buttons = ttk.Frame(comune_frame)
+        comune_buttons.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Button(
+            comune_buttons,
+            text="Scegli CSV…",
+            command=self._choose_stradario_comune_map,
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            comune_buttons,
+            text="Rimuovi",
+            command=self._clear_stradario_comune_map,
+        ).grid(row=0, column=1)
+
+        output_frame = ttk.Frame(frame)
+        output_frame.grid(row=5, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(output_frame, text="File output (opzionale):").grid(
+            row=0, column=0, padx=(0, 6)
+        )
+        ttk.Entry(
+            output_frame,
+            width=32,
+            textvariable=self.stradario_output_var,
+        ).grid(row=0, column=1, sticky="w")
+        ttk.Label(
+            output_frame,
+            text="Lascia vuoto per salvare automaticamente in 'output'.",
+            foreground="#555555",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        self.stradario_run_button = ttk.Button(
+            frame, text="Associa CODICE_VIA", command=self._run_stradario_script
+        )
+        self.stradario_run_button.grid(row=6, column=0, sticky="e", pady=(12, 0))
 
     def _build_convert_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=12)
@@ -648,6 +746,41 @@ class ScriptRunnerGUI(tk.Tk):
         if self.compare_map_label:
             self.compare_map_label.config(text="(nessun file)")
 
+    def _choose_stradario_addresses_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file con indirizzi divisi", filetypes=EXCEL_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.stradario_addresses_var.set(absolute)
+            if self.stradario_address_label:
+                self.stradario_address_label.config(text=self._friendly_name(absolute))
+
+    def _choose_stradario_stradario_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file stradario", filetypes=SPLIT_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.stradario_stradario_var.set(absolute)
+            if self.stradario_stradario_label:
+                self.stradario_stradario_label.config(text=self._friendly_name(absolute))
+
+    def _choose_stradario_comune_map(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona CSV equivalenze comuni", filetypes=CSV_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.stradario_comune_map_var.set(absolute)
+            if self.stradario_comune_label:
+                self.stradario_comune_label.config(text=self._friendly_name(absolute))
+
+    def _clear_stradario_comune_map(self) -> None:
+        self.stradario_comune_map_var.set("")
+        if self.stradario_comune_label:
+            self.stradario_comune_label.config(text="(nessun file)")
+
     def _choose_address_file(self) -> None:
         path = filedialog.askopenfilename(
             title="Seleziona file con indirizzi", filetypes=EXCEL_FILETYPES
@@ -723,6 +856,35 @@ class ScriptRunnerGUI(tk.Tk):
         if comune_map:
             args.extend(["--comune-map", comune_map])
         self._execute_script("Confronta indirizzi", args, self.compare_run_button)
+
+    def _run_stradario_script(self) -> None:
+        addresses = self.stradario_addresses_var.get().strip()
+        stradario_path = self.stradario_stradario_var.get().strip()
+        if not addresses or not stradario_path:
+            messagebox.showwarning(
+                "Associa stradario",
+                "Seleziona sia il file con gli indirizzi che il file stradario.",
+            )
+            return
+        if not self.stradario_run_button:
+            return
+        mode_label = self.stradario_mode_var.get()
+        mode_value = STRADARIO_MODE_OPTIONS.get(mode_label, "compatto")
+        args = [
+            "--addresses",
+            addresses,
+            "--stradario",
+            stradario_path,
+            "--mode",
+            mode_value,
+        ]
+        comune_map = self.stradario_comune_map_var.get().strip()
+        if comune_map:
+            args.extend(["--comune-map", comune_map])
+        output_path = self.stradario_output_var.get().strip()
+        if output_path:
+            args.extend(["--output", output_path])
+        self._execute_script("Associa stradario", args, self.stradario_run_button)
 
     def _run_convert_script(self) -> None:
         if not self.convert_files:
