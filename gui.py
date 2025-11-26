@@ -104,6 +104,7 @@ class ScriptRunnerGUI(tk.Tk):
         default_compare_mode = next(iter(COMPARE_MODE_OPTIONS))
         self.compare_mode_var = tk.StringVar(value=default_compare_mode)
         self.compare_map_var = tk.StringVar(value="")
+        self.compare_all_columns_b_var = tk.BooleanVar(value=False)
         self.compare_map_label: ttk.Label | None = None
         self.compare_run_button: ttk.Button | None = None
 
@@ -376,8 +377,14 @@ class ScriptRunnerGUI(tk.Tk):
             values=list(COMPARE_MODE_OPTIONS.keys()),
         ).grid(row=0, column=1, sticky="w")
 
+        ttk.Checkbutton(
+            frame,
+            text="Includi tutte le colonne del file B nel risultato",
+            variable=self.compare_all_columns_b_var,
+        ).grid(row=4, column=0, sticky="w", pady=(6, 0))
+
         comune_frame = ttk.LabelFrame(frame, text="Mappa equivalenze comuni (opzionale)")
-        comune_frame.grid(row=4, column=0, sticky="we", pady=(10, 0))
+        comune_frame.grid(row=5, column=0, sticky="we", pady=(10, 0))
         comune_frame.columnconfigure(1, weight=1)
         ttk.Label(comune_frame, text="File selezionato:").grid(row=0, column=0, padx=(0, 6))
         self.compare_map_label = ttk.Label(comune_frame, text="(nessun file)")
@@ -403,7 +410,7 @@ class ScriptRunnerGUI(tk.Tk):
         self.compare_run_button = ttk.Button(
             frame, text="Esegui confronto", command=self._run_compare_script
         )
-        self.compare_run_button.grid(row=5, column=0, pady=(12, 0), sticky="e")
+        self.compare_run_button.grid(row=6, column=0, pady=(12, 0), sticky="e")
 
     def _build_stradario_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=12)
@@ -852,6 +859,8 @@ class ScriptRunnerGUI(tk.Tk):
         mode_label = self.compare_mode_var.get()
         mode_value = COMPARE_MODE_OPTIONS.get(mode_label, "compatto")
         args = ["--files", *(self.compare_files[0:2]), "--mode", mode_value]
+        if self.compare_all_columns_b_var.get():
+            args.append("--all-columns-file-b")
         comune_map = self.compare_map_var.get().strip()
         if comune_map:
             args.extend(["--comune-map", comune_map])

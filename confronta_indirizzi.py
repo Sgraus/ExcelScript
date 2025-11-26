@@ -143,6 +143,11 @@ def parse_args() -> argparse.Namespace:
             "Se presente, viene unito alla tabella predefinita 'comuni_equivalenze.csv' nella cartella dello script."
         ),
     )
+    parser.add_argument(
+        "--all-columns-file-b",
+        action="store_true",
+        help="Include tutte le colonne del file B nel file di output.",
+    )
     return parser.parse_args()
 
 
@@ -221,7 +226,13 @@ def _find_comune_columns(df: pd.DataFrame, filename: str) -> List[str]:
     return comune_cols
 
 
-def _prepare_table(path: str, config: ModeConfig, *, include_all_columns: bool = False) -> PreparedTable:
+def _prepare_table(
+    path: str,
+    config: ModeConfig,
+    *,
+    include_all_columns: bool = False,
+    extra_columns: Sequence[str] = (),
+) -> PreparedTable:
     dataframe = _read_dataframe(path)
     filename = os.path.basename(path)
     comune_columns = _find_comune_columns(dataframe, filename)
@@ -236,6 +247,12 @@ def _prepare_table(path: str, config: ModeConfig, *, include_all_columns: bool =
         other_columns = [col for col in dataframe.columns if col != "match"]
     else:
         other_columns = list(comune_columns) + list(config.address_columns)
+        if extra_columns:
+            lower_map = {col.casefold(): col for col in dataframe.columns}
+            for candidate in extra_columns:
+                actual = lower_map.get(candidate.casefold())
+                if actual and actual != "match" and actual not in other_columns:
+                    other_columns.append(actual)
     selected_cols = ["match"] + other_columns
     subset = dataframe.loc[:, selected_cols].copy()
     label = _normalize_label(path)
@@ -466,7 +483,12 @@ def main() -> None:
 
     selected_files = _resolve_files(args)
     left_table = _prepare_table(selected_files[0], config, include_all_columns=True)
-    right_table = _prepare_table(selected_files[1], config)
+    right_table = _prepare_table(
+        selected_files[1],
+        config,
+        include_all_columns=args.all_columns_file_b,
+        extra_columns=("pr", "cap"),
+    )
 
     merged = left_table.dataframe.merge(right_table.dataframe, on="match", how="left")
     if merged.empty:
