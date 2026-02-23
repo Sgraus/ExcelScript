@@ -72,38 +72,54 @@ FLAG_COLUMNS = [
     "flag_dettagli",
     "flag_generale",
 ]
+DEBUG_COMUNE_COLUMN = "debug_comuni_confrontati"
 
 STREET_PREFIXES = {
-    "VIA",
-    "V",
-    "VIALE",
-    "VLE",
-    "PIAZZA",
-    "PZ",
-    "PZZA",
-    "PIAZZALE",
-    "PLE",
-    "LARGO",
-    "LGO",
+    "BGO",
+    "BORGO",
+    "C DA",
+    "C SO",
+    "C.DA",
+    "C.SO",
+    "C/DA",
+    "CDA",
+    "CONTRADA",
     "CORSO",
     "CRS",
-    "STRADA",
-    "STR",
-    "SDA",
-    "CONTRADA",
     "CTR",
-    "LOCALITA",
+    "L GO",
+    "L.GO",
+    "LARGO",
+    "LGO",
     "LOC",
-    "BORGO",
-    "BGO",
-    "VICOLO",
-    "VICO",
-    "SALITA",
-    "SAL",
+    "LOCALITA",
+    "P LE",
+    "P ZA",
+    "P ZZA",
+    "P.ZA",
+    "P/ZA",
+    "PIAZZA",
+    "PIAZZALE",
     "PIAZZETTA",
+    "PLE",
+    "PZ",
+    "PZA",
     "PZTTA",
-    "TRAVERSA",
+    "PZZA",
+    "SAL",
+    "SALITA",
+    "SDA",
+    "STR",
+    "STRAD",
+    "STRADA",
     "TRAV",
+    "TRAVERSA",
+    "V",
+    "VIA",
+    "VIALE",
+    "VICO",
+    "VICOLO",
+    "VLE",
 }
 
 
@@ -147,6 +163,14 @@ def parse_args() -> argparse.Namespace:
         "--all-columns-file-b",
         action="store_true",
         help="Include tutte le colonne del file B nel file di output.",
+    )
+    parser.add_argument(
+        "--debug-comuni",
+        action="store_true",
+        help=(
+            "Aggiunge in output una colonna con i due valori comune confrontati "
+            "nel formato 'valore_file_a||valore_file_b'."
+        ),
     )
     return parser.parse_args()
 
@@ -218,10 +242,12 @@ def _normalize_label(path: str) -> str:
 
 
 def _find_comune_columns(df: pd.DataFrame, filename: str) -> List[str]:
-    comune_cols = [col for col in df.columns if COMUNE_KEYWORD in col.casefold()]
+    comune_cols = [
+        col for col in df.columns if isinstance(col, str) and col.strip().casefold() == COMUNE_KEYWORD
+    ]
     if not comune_cols:
         raise SystemExit(
-            f"Errore: il file '{filename}' non contiene colonne con la parola '{COMUNE_KEYWORD}'."
+            f"Errore: il file '{filename}' non contiene una colonna chiamata esattamente '{COMUNE_KEYWORD}'."
         )
     return comune_cols
 
@@ -433,6 +459,8 @@ def _build_flags(
     left: PreparedTable,
     right: PreparedTable,
     comune_resolver: ComuneResolver | None,
+    *,
+    debug_comuni: bool = False,
 ) -> pd.DataFrame:
     def compute_flags(row: pd.Series) -> pd.Series:
         comune_left_value = _first_non_empty(row, left.comune_columns)
@@ -454,10 +482,12 @@ def _build_flags(
         rest_flag = _compare_values(rest_left, rest_right)
 
         overall = _overall_flag((comune_flag, via_flag, civico_flag, rest_flag))
-        return pd.Series(
-            [comune_flag, via_flag, civico_flag, rest_flag, overall],
-            index=FLAG_COLUMNS,
-        )
+        values = [comune_flag, via_flag, civico_flag, rest_flag, overall]
+        columns = list(FLAG_COLUMNS)
+        if debug_comuni:
+            values.append(f"{comune_left_value}||{comune_right_value}")
+            columns.append(DEBUG_COMUNE_COLUMN)
+        return pd.Series(values, index=columns)
 
     return merged.apply(compute_flags, axis=1)
 
@@ -497,7 +527,13 @@ def main() -> None:
             "Nulla da confrontare."
         )
 
-    flag_df = _build_flags(merged, left_table, right_table, comune_resolver)
+    flag_df = _build_flags(
+        merged,
+        left_table,
+        right_table,
+        comune_resolver,
+        debug_comuni=args.debug_comuni,
+    )
 
     ordered_columns = ["match"] + [
         column for column in left_table.dataframe.columns if column != "match"
@@ -506,6 +542,8 @@ def main() -> None:
     output_df = merged.loc[:, ordered_columns].copy()
     for column in FLAG_COLUMNS:
         output_df[column] = flag_df[column]
+    if args.debug_comuni:
+        output_df[DEBUG_COMUNE_COLUMN] = flag_df[DEBUG_COMUNE_COLUMN]
 
     output_path = _ensure_output_path(args.output, left_table, right_table, mode)
     try:
