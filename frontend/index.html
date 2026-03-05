@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AllInOne • Tracker personale</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">ALLINONE</p>
+          <h1>Tracker personale</h1>
+        </div>
+        <p id="todayLabel" class="today-label"></p>
+      </header>
+
+      <main class="app-main" id="appMain"></main>
+
+      <nav class="app-nav" aria-label="Navigazione principale">
+        <button class="nav-item is-active" data-view="home">Home</button>
+        <button class="nav-item" data-view="calendario">Calendario</button>
+        <button class="nav-item" data-view="workout">Workout</button>
+      </nav>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
