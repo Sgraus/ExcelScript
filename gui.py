@@ -57,6 +57,7 @@ SCRIPTS = {
     "Converti file": "converti_file.py",
     "Confronta indirizzi": "confronta_indirizzi.py",
     "Associa stradario": "associa_stradario.py",
+    "Parse JSON": "parse_json.py",
 }
 
 
@@ -134,6 +135,12 @@ class ScriptRunnerGUI(tk.Tk):
         self.address_mode_var = tk.StringVar(value=default_address_mode)
         self.address_file_var = tk.StringVar(value="")
 
+        # Stato Parse JSON
+        self.parse_json_file_var = tk.StringVar(value="")
+        self.parse_json_column_var = tk.StringVar(value="data")
+        self.parse_json_output_var = tk.StringVar(value="parse_json.xlsx")
+        self.parse_json_file_label: ttk.Label | None = None
+
         self._build_widgets()
         self._center_window()
 
@@ -174,6 +181,7 @@ class ScriptRunnerGUI(tk.Tk):
         self._build_stradario_tab(notebook)
         self._build_convert_tab(notebook)
         self._build_address_tab(notebook)
+        self._build_parse_json_tab(notebook)
 
         log_frame = ttk.LabelFrame(main_frame, text="Log esecuzione")
         log_frame.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
@@ -612,6 +620,47 @@ class ScriptRunnerGUI(tk.Tk):
         )
         self.address_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
 
+
+    def _build_parse_json_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Parse JSON")
+
+        ttk.Label(
+            frame,
+            text=(
+                "Espande il JSON presente in una colonna (default: data) "
+                "in nuove colonne Excel."
+            ),
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Button(
+            frame,
+            text="Scegli file Excel…",
+            command=self._choose_parse_json_file,
+        ).grid(row=1, column=0, sticky="w", pady=(8, 4))
+
+        self.parse_json_file_label = ttk.Label(frame, text="(nessun file)")
+        self.parse_json_file_label.grid(row=2, column=0, sticky="w")
+
+        config_frame = ttk.Frame(frame)
+        config_frame.grid(row=3, column=0, sticky="w", pady=(10, 0))
+
+        ttk.Label(config_frame, text="Colonna JSON:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Entry(config_frame, width=20, textvariable=self.parse_json_column_var).grid(
+            row=0, column=1, sticky="w", padx=(0, 12)
+        )
+
+        ttk.Label(config_frame, text="Nome output:").grid(row=0, column=2, padx=(0, 6))
+        ttk.Entry(config_frame, width=30, textvariable=self.parse_json_output_var).grid(
+            row=0, column=3, sticky="w"
+        )
+
+        self.parse_json_run_button = ttk.Button(
+            frame, text="Esegui Parse JSON", command=self._run_parse_json_script
+        )
+        self.parse_json_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
+
     # ------------------------------------------------------------------ Helpers
     def _friendly_name(self, path: str | None) -> str:
         if not path:
@@ -804,6 +853,17 @@ class ScriptRunnerGUI(tk.Tk):
             self.address_file_var.set(absolute)
             self.address_file_label.config(text=self._friendly_name(absolute))
 
+
+    def _choose_parse_json_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file Excel da elaborare", filetypes=EXCEL_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.parse_json_file_var.set(absolute)
+            if self.parse_json_file_label:
+                self.parse_json_file_label.config(text=self._friendly_name(absolute))
+
     def _open_directory(self, directory: str) -> None:
         if not os.path.isdir(directory):
             os.makedirs(directory, exist_ok=True)
@@ -916,6 +976,25 @@ class ScriptRunnerGUI(tk.Tk):
             delimiter = self.convert_csv_delimiter_var.get().strip() or ","
             args.extend(["--csv-delimiter", delimiter])
         self._execute_script("Converti file", args, self.convert_run_button)
+
+
+    def _run_parse_json_script(self) -> None:
+        file_path = self.parse_json_file_var.get().strip()
+        if not file_path:
+            messagebox.showwarning("Parse JSON", "Seleziona un file Excel da elaborare.")
+            return
+
+        column_name = self.parse_json_column_var.get().strip() or "data"
+        output_name = self.parse_json_output_var.get().strip() or "parse_json.xlsx"
+        args = [
+            "--file",
+            file_path,
+            "--column",
+            column_name,
+            "--output-name",
+            output_name,
+        ]
+        self._execute_script("Parse JSON", args, self.parse_json_run_button)
 
     def _run_address_script(self) -> None:
         file_path = self.address_file_var.get().strip()
@@ -1105,3 +1184,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
