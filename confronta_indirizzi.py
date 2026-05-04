@@ -3,6 +3,7 @@ import os
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from itertools import permutations
 from typing import Callable, Iterable, List, Sequence
 
 import pandas as pd
@@ -72,6 +73,7 @@ FLAG_COLUMNS = [
     "flag_dettagli",
     "flag_generale",
 ]
+ADDRESS_SCORE_COLUMN = "score_indirizzo"
 DEBUG_COMUNE_COLUMN = "debug_comuni_confrontati"
 
 STREET_PREFIXES = {
@@ -428,6 +430,102 @@ def _compare_values(
     return "diverso"
 
 
+def _compare_values_with_score(
+    value_a,
+    value_b,
+    *,
+    resolver: ComuneResolver | None = None,
+    preprocess: Callable[[str], str] | None = None,
+    similarity_threshold: float = 0.88,
+) -> tuple[str, int]:
+    flag = _compare_values(
+        value_a,
+        value_b,
+        resolver=resolver,
+        preprocess=preprocess,
+        similarity_threshold=similarity_threshold,
+    )
+    text_a = _safe_string(value_a)
+    text_b = _safe_string(value_b)
+
+    if preprocess:
+        text_a = preprocess(text_a)
+        text_b = preprocess(text_b)
+
+    if text_a == "" and text_b == "":
+        return flag, 100
+    if text_a == "" or text_b == "":
+        return flag, 0
+    if flag == "uguale":
+        return flag, 100
+
+    norm_a = resolver.canonical(text_a) if resolver else _normalize_text(text_a)
+    norm_b = resolver.canonical(text_b) if resolver else _normalize_text(text_b)
+    if norm_a and norm_b:
+        ratio = SequenceMatcher(None, norm_a, norm_b).ratio()
+    else:
+        ratio = SequenceMatcher(None, text_a.casefold(), text_b.casefold()).ratio()
+
+    if flag == "simile":
+        return flag, max(60, min(89, round(ratio * 100)))
+    return flag, min(59, round(ratio * 100))
+
+
+def _street_reordered_variants(value: str) -> set[str]:
+    text = _safe_string(value)
+    if not text:
+        return set()
+
+    cleaned = re.sub(r"[\.,]", " ", text.upper())
+    tokens = [token for token in cleaned.split() if token]
+    if len(tokens) not in {2, 3}:
+        return set()
+
+    original = tuple(tokens)
+    variants: set[str] = set()
+    for perm in permutations(tokens):
+        if perm == original:
+            continue
+        variants.add(_normalize_text(" ".join(perm)))
+    return variants
+
+
+def _compare_street_values(value_a, value_b) -> tuple[str, int]:
+    text_a = _strip_street_prefix(_safe_string(value_a))
+    text_b = _strip_street_prefix(_safe_string(value_b))
+
+    flag, score = _compare_values_with_score(text_a, text_b)
+    if flag in {"uguale", "vuoti", "solo_file_1", "solo_file_2", "simile"}:
+        return flag, score
+
+    norm_a = _normalize_text(text_a)
+    norm_b = _normalize_text(text_b)
+    if not norm_a or not norm_b:
+        return flag, score
+
+    variants_a = _street_reordered_variants(text_a)
+    variants_b = _street_reordered_variants(text_b)
+    if norm_b in variants_a or norm_a in variants_b or bool(variants_a & variants_b):
+        return "uguale_ordinato", 100
+
+    return flag, score
+
+
+def _weighted_address_score(
+    comune_score: int,
+    via_score: int,
+    civico_score: int,
+    rest_score: int,
+) -> int:
+    weighted_total = (
+        comune_score * 25
+        + via_score * 45
+        + civico_score * 20
+        + rest_score * 10
+    )
+    return round(weighted_total / 100)
+
+
 def _compose_rest_value(row: pd.Series, columns: Sequence[str]) -> str:
     values = [_safe_string(row.get(col, "")) for col in columns]
     clean_values = [value for value in values if value]
@@ -443,7 +541,7 @@ def _first_non_empty(row: pd.Series, columns: Sequence[str]) -> str:
 
 
 def _overall_flag(flags: Sequence[str]) -> str:
-    if all(flag in {"uguale", "vuoti"} for flag in flags):
+    if all(flag in {"uguale", "uguale_ordinato", "vuoti"} for flag in flags):
         return "coincidenza"
     if any(flag == "diverso" for flag in flags):
         return "differenza"
@@ -465,25 +563,36 @@ def _build_flags(
     def compute_flags(row: pd.Series) -> pd.Series:
         comune_left_value = _first_non_empty(row, left.comune_columns)
         comune_right_value = _first_non_empty(row, right.comune_columns)
-        comune_flag = _compare_values(
+        comune_flag, comune_score = _compare_values_with_score(
             comune_left_value,
             comune_right_value,
             resolver=comune_resolver,
         )
-        via_flag = _compare_values(
-            row[left.via_column],
-            row[right.via_column],
-            preprocess=_strip_street_prefix,
+        via_flag, via_score = _compare_street_values(row[left.via_column], row[right.via_column])
+        civico_flag, civico_score = _compare_values_with_score(
+            row[left.civico_column], row[right.civico_column]
         )
-        civico_flag = _compare_values(row[left.civico_column], row[right.civico_column])
 
         rest_left = _compose_rest_value(row, left.rest_columns)
         rest_right = _compose_rest_value(row, right.rest_columns)
-        rest_flag = _compare_values(rest_left, rest_right)
+        rest_flag, rest_score = _compare_values_with_score(rest_left, rest_right)
+        address_score = _weighted_address_score(
+            comune_score,
+            via_score,
+            civico_score,
+            rest_score,
+        )
 
         overall = _overall_flag((comune_flag, via_flag, civico_flag, rest_flag))
-        values = [comune_flag, via_flag, civico_flag, rest_flag, overall]
-        columns = list(FLAG_COLUMNS)
+        values = [comune_flag, via_flag, address_score, civico_flag, rest_flag, overall]
+        columns = [
+            "flag_comune",
+            "flag_via",
+            ADDRESS_SCORE_COLUMN,
+            "flag_civico",
+            "flag_dettagli",
+            "flag_generale",
+        ]
         if debug_comuni:
             values.append(f"{comune_left_value}||{comune_right_value}")
             columns.append(DEBUG_COMUNE_COLUMN)
@@ -539,9 +648,18 @@ def main() -> None:
         column for column in left_table.dataframe.columns if column != "match"
     ] + [column for column in right_table.dataframe.columns if column not in {"match"}]
 
-    output_df = merged.loc[:, ordered_columns].copy()
-    for column in FLAG_COLUMNS:
-        output_df[column] = flag_df[column]
+    result_columns = [
+        "flag_comune",
+        "flag_via",
+        ADDRESS_SCORE_COLUMN,
+        "flag_civico",
+        "flag_dettagli",
+        "flag_generale",
+    ]
+    output_df = pd.concat(
+        [merged.loc[:, ordered_columns].copy(), flag_df.loc[:, result_columns]],
+        axis=1,
+    )
     if args.debug_comuni:
         output_df[DEBUG_COMUNE_COLUMN] = flag_df[DEBUG_COMUNE_COLUMN]
 

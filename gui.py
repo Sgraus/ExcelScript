@@ -43,6 +43,10 @@ SPLIT_FILETYPES = [
     ("File Excel", "*.xlsx *.xlsm *.xls"),
     ("Tutti i file", "*.*"),
 ]
+TEXT_FILETYPES = [
+    ("File di testo", "*.txt *.dat *.out"),
+    ("Tutti i file", "*.*"),
+]
 
 CONVERT_DIRECTION_OPTIONS = {
     "Excel -> CSV": ("csv", EXCEL_FILETYPES),
@@ -57,6 +61,9 @@ SCRIPTS = {
     "Converti file": "converti_file.py",
     "Confronta indirizzi": "confronta_indirizzi.py",
     "Associa stradario": "associa_stradario.py",
+    "Parse JSON": "parse_json.py",
+    "Parse SIATEL": "parse_siatel.py",
+    "Erede prevalente": "erede_prevalente.py",
 }
 
 
@@ -134,6 +141,26 @@ class ScriptRunnerGUI(tk.Tk):
         self.address_mode_var = tk.StringVar(value=default_address_mode)
         self.address_file_var = tk.StringVar(value="")
 
+        # Stato Parse JSON
+        self.parse_json_file_var = tk.StringVar(value="")
+        self.parse_json_column_var = tk.StringVar(value="data")
+        self.parse_json_output_var = tk.StringVar(value="parse_json.xlsx")
+        self.parse_json_file_label: ttk.Label | None = None
+
+        # Stato Parse SIATEL
+        self.parse_siatel_file_var = tk.StringVar(value="")
+        self.parse_siatel_output_var = tk.StringVar(value="result_siatel.xlsx")
+        self.parse_siatel_file_label: ttk.Label | None = None
+
+        # Stato Erede prevalente
+        self.erede_idrico_file_var = tk.StringVar(value="")
+        self.erede_siatel_file_var = tk.StringVar(value="")
+        self.erede_output_var = tk.StringVar(value="result_erede_prevalente.xlsx")
+        self.erede_comune_map_var = tk.StringVar(value="")
+        self.erede_idrico_label: ttk.Label | None = None
+        self.erede_siatel_label: ttk.Label | None = None
+        self.erede_comune_label: ttk.Label | None = None
+
         self._build_widgets()
         self._center_window()
 
@@ -174,6 +201,9 @@ class ScriptRunnerGUI(tk.Tk):
         self._build_stradario_tab(notebook)
         self._build_convert_tab(notebook)
         self._build_address_tab(notebook)
+        self._build_parse_json_tab(notebook)
+        self._build_parse_siatel_tab(notebook)
+        self._build_erede_prevalente_tab(notebook)
 
         log_frame = ttk.LabelFrame(main_frame, text="Log esecuzione")
         log_frame.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
@@ -612,6 +642,141 @@ class ScriptRunnerGUI(tk.Tk):
         )
         self.address_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
 
+
+    def _build_parse_json_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Parse JSON")
+
+        ttk.Label(
+            frame,
+            text=(
+                "Espande il JSON presente in una colonna (default: data) "
+                "in nuove colonne Excel."
+            ),
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Button(
+            frame,
+            text="Scegli file Excel…",
+            command=self._choose_parse_json_file,
+        ).grid(row=1, column=0, sticky="w", pady=(8, 4))
+
+        self.parse_json_file_label = ttk.Label(frame, text="(nessun file)")
+        self.parse_json_file_label.grid(row=2, column=0, sticky="w")
+
+        config_frame = ttk.Frame(frame)
+        config_frame.grid(row=3, column=0, sticky="w", pady=(10, 0))
+
+        ttk.Label(config_frame, text="Colonna JSON:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Entry(config_frame, width=20, textvariable=self.parse_json_column_var).grid(
+            row=0, column=1, sticky="w", padx=(0, 12)
+        )
+
+        ttk.Label(config_frame, text="Nome output:").grid(row=0, column=2, padx=(0, 6))
+        ttk.Entry(config_frame, width=30, textvariable=self.parse_json_output_var).grid(
+            row=0, column=3, sticky="w"
+        )
+
+        self.parse_json_run_button = ttk.Button(
+            frame, text="Esegui Parse JSON", command=self._run_parse_json_script
+        )
+        self.parse_json_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
+
+    def _build_parse_siatel_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Parse SIATEL")
+
+        ttk.Label(
+            frame,
+            text="Converte un file testuale SIATEL a larghezza fissa in un Excel con i fogli elaborato e altri_dati.",
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Button(
+            frame,
+            text="Scegli file testuale…",
+            command=self._choose_parse_siatel_file,
+        ).grid(row=1, column=0, sticky="w", pady=(8, 4))
+
+        self.parse_siatel_file_label = ttk.Label(frame, text="(nessun file)")
+        self.parse_siatel_file_label.grid(row=2, column=0, sticky="w")
+
+        output_frame = ttk.Frame(frame)
+        output_frame.grid(row=3, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(output_frame, text="Nome output:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Entry(output_frame, width=30, textvariable=self.parse_siatel_output_var).grid(
+            row=0, column=1, sticky="w"
+        )
+
+        self.parse_siatel_run_button = ttk.Button(
+            frame, text="Esegui Parse SIATEL", command=self._run_parse_siatel_script
+        )
+        self.parse_siatel_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
+
+    def _build_erede_prevalente_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Erede prevalente")
+
+        ttk.Label(
+            frame,
+            text="Incrocia file idrico e risultato SIATEL per selezionare l'erede prevalente da notificare.",
+        ).grid(row=0, column=0, sticky="w")
+
+        idrico_frame = ttk.Frame(frame)
+        idrico_frame.grid(row=1, column=0, sticky="w", pady=(8, 4))
+        ttk.Label(idrico_frame, text="File idrico:").grid(row=0, column=0, padx=(0, 6))
+        self.erede_idrico_label = ttk.Label(idrico_frame, text="(nessun file)")
+        self.erede_idrico_label.grid(row=0, column=1, sticky="w")
+        ttk.Button(
+            idrico_frame,
+            text="Scegli…",
+            command=self._choose_erede_idrico_file,
+        ).grid(row=0, column=2, padx=(8, 0))
+
+        siatel_frame = ttk.Frame(frame)
+        siatel_frame.grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(siatel_frame, text="File SIATEL:").grid(row=0, column=0, padx=(0, 6))
+        self.erede_siatel_label = ttk.Label(siatel_frame, text="(nessun file)")
+        self.erede_siatel_label.grid(row=0, column=1, sticky="w")
+        ttk.Button(
+            siatel_frame,
+            text="Scegli…",
+            command=self._choose_erede_siatel_file,
+        ).grid(row=0, column=2, padx=(8, 0))
+
+        comune_frame = ttk.LabelFrame(frame, text="Mappa equivalenze comuni (opzionale)")
+        comune_frame.grid(row=3, column=0, sticky="we", pady=(10, 0))
+        comune_frame.columnconfigure(1, weight=1)
+        ttk.Label(comune_frame, text="File selezionato:").grid(row=0, column=0, padx=(0, 6))
+        self.erede_comune_label = ttk.Label(comune_frame, text="(nessun file)")
+        self.erede_comune_label.grid(row=0, column=1, sticky="w")
+        comune_buttons = ttk.Frame(comune_frame)
+        comune_buttons.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Button(
+            comune_buttons,
+            text="Scegli CSV…",
+            command=self._choose_erede_comune_map,
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            comune_buttons,
+            text="Rimuovi",
+            command=self._clear_erede_comune_map,
+        ).grid(row=0, column=1)
+
+        output_frame = ttk.Frame(frame)
+        output_frame.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(output_frame, text="Nome output:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Entry(output_frame, width=32, textvariable=self.erede_output_var).grid(
+            row=0, column=1, sticky="w"
+        )
+
+        self.erede_run_button = ttk.Button(
+            frame, text="Esegui Erede prevalente", command=self._run_erede_prevalente_script
+        )
+        self.erede_run_button.grid(row=5, column=0, pady=(12, 0), sticky="e")
+
     # ------------------------------------------------------------------ Helpers
     def _friendly_name(self, path: str | None) -> str:
         if not path:
@@ -804,6 +969,62 @@ class ScriptRunnerGUI(tk.Tk):
             self.address_file_var.set(absolute)
             self.address_file_label.config(text=self._friendly_name(absolute))
 
+
+    def _choose_parse_json_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file Excel da elaborare", filetypes=EXCEL_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.parse_json_file_var.set(absolute)
+            if self.parse_json_file_label:
+                self.parse_json_file_label.config(text=self._friendly_name(absolute))
+
+    def _choose_parse_siatel_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file testuale SIATEL", filetypes=TEXT_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.parse_siatel_file_var.set(absolute)
+            if self.parse_siatel_file_label:
+                self.parse_siatel_file_label.config(text=self._friendly_name(absolute))
+
+    def _choose_erede_idrico_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file idrico", filetypes=EXCEL_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.erede_idrico_file_var.set(absolute)
+            if self.erede_idrico_label:
+                self.erede_idrico_label.config(text=self._friendly_name(absolute))
+
+    def _choose_erede_siatel_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file Excel SIATEL", filetypes=EXCEL_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.erede_siatel_file_var.set(absolute)
+            if self.erede_siatel_label:
+                self.erede_siatel_label.config(text=self._friendly_name(absolute))
+
+    def _choose_erede_comune_map(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona CSV equivalenze comuni", filetypes=CSV_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.erede_comune_map_var.set(absolute)
+            if self.erede_comune_label:
+                self.erede_comune_label.config(text=self._friendly_name(absolute))
+
+    def _clear_erede_comune_map(self) -> None:
+        self.erede_comune_map_var.set("")
+        if self.erede_comune_label:
+            self.erede_comune_label.config(text="(nessun file)")
+
     def _open_directory(self, directory: str) -> None:
         if not os.path.isdir(directory):
             os.makedirs(directory, exist_ok=True)
@@ -916,6 +1137,75 @@ class ScriptRunnerGUI(tk.Tk):
             delimiter = self.convert_csv_delimiter_var.get().strip() or ","
             args.extend(["--csv-delimiter", delimiter])
         self._execute_script("Converti file", args, self.convert_run_button)
+
+
+    def _run_parse_json_script(self) -> None:
+        file_path = self.parse_json_file_var.get().strip()
+        if not file_path:
+            messagebox.showwarning("Parse JSON", "Seleziona un file Excel da elaborare.")
+            return
+
+        column_name = self.parse_json_column_var.get().strip() or "data"
+        output_name = self.parse_json_output_var.get().strip() or "parse_json.xlsx"
+        args = [
+            "--file",
+            file_path,
+            "--column",
+            column_name,
+            "--output-name",
+            output_name,
+        ]
+        self._execute_script("Parse JSON", args, self.parse_json_run_button)
+
+    def _run_parse_siatel_script(self) -> None:
+        file_path = self.parse_siatel_file_var.get().strip()
+        if not file_path:
+            messagebox.showwarning("Parse SIATEL", "Seleziona un file testuale SIATEL.")
+            return
+
+        output_name = self.parse_siatel_output_var.get().strip() or "result_siatel.xlsx"
+        args = [
+            "--file",
+            file_path,
+            "--output-name",
+            output_name,
+        ]
+        self._execute_script("Parse SIATEL", args, self.parse_siatel_run_button)
+
+    def _run_erede_prevalente_script(self) -> None:
+        idrico_path = self.erede_idrico_file_var.get().strip()
+        if not idrico_path:
+            messagebox.showwarning("Erede prevalente", "Seleziona il file idrico.")
+            return
+
+        siatel_path = self.erede_siatel_file_var.get().strip()
+        if not siatel_path:
+            default_siatel = os.path.join(OUTPUT_DIR, "result_siatel.xlsx")
+            if os.path.isfile(default_siatel):
+                siatel_path = default_siatel
+                self.erede_siatel_file_var.set(siatel_path)
+                if self.erede_siatel_label:
+                    self.erede_siatel_label.config(text=self._friendly_name(siatel_path))
+            else:
+                messagebox.showwarning(
+                    "Erede prevalente",
+                    "Seleziona il file SIATEL oppure genera prima 'result_siatel.xlsx'.",
+                )
+                return
+
+        output_name = self.erede_output_var.get().strip() or "result_erede_prevalente.xlsx"
+        args = [
+            "--idrico",
+            idrico_path,
+            "--siatel",
+            siatel_path,
+            "--output-name",
+            output_name,
+        ]
+        comune_map = self.erede_comune_map_var.get().strip()
+        if comune_map:
+            args.extend(["--comune-map", comune_map])
+        self._execute_script("Erede prevalente", args, self.erede_run_button)
 
     def _run_address_script(self) -> None:
         file_path = self.address_file_var.get().strip()
