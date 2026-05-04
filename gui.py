@@ -43,6 +43,10 @@ SPLIT_FILETYPES = [
     ("File Excel", "*.xlsx *.xlsm *.xls"),
     ("Tutti i file", "*.*"),
 ]
+TEXT_FILETYPES = [
+    ("File di testo", "*.txt *.dat *.out"),
+    ("Tutti i file", "*.*"),
+]
 
 CONVERT_DIRECTION_OPTIONS = {
     "Excel -> CSV": ("csv", EXCEL_FILETYPES),
@@ -58,6 +62,7 @@ SCRIPTS = {
     "Confronta indirizzi": "confronta_indirizzi.py",
     "Associa stradario": "associa_stradario.py",
     "Parse JSON": "parse_json.py",
+    "Parse SIATEL": "parse_siatel.py",
 }
 
 
@@ -141,6 +146,11 @@ class ScriptRunnerGUI(tk.Tk):
         self.parse_json_output_var = tk.StringVar(value="parse_json.xlsx")
         self.parse_json_file_label: ttk.Label | None = None
 
+        # Stato Parse SIATEL
+        self.parse_siatel_file_var = tk.StringVar(value="")
+        self.parse_siatel_output_var = tk.StringVar(value="result_siatel.xlsx")
+        self.parse_siatel_file_label: ttk.Label | None = None
+
         self._build_widgets()
         self._center_window()
 
@@ -182,6 +192,7 @@ class ScriptRunnerGUI(tk.Tk):
         self._build_convert_tab(notebook)
         self._build_address_tab(notebook)
         self._build_parse_json_tab(notebook)
+        self._build_parse_siatel_tab(notebook)
 
         log_frame = ttk.LabelFrame(main_frame, text="Log esecuzione")
         log_frame.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
@@ -661,6 +672,37 @@ class ScriptRunnerGUI(tk.Tk):
         )
         self.parse_json_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
 
+    def _build_parse_siatel_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=12)
+        frame.columnconfigure(0, weight=1)
+        notebook.add(frame, text="Parse SIATEL")
+
+        ttk.Label(
+            frame,
+            text="Converte un file testuale SIATEL a larghezza fissa in un Excel con i fogli elaborato e altri_dati.",
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Button(
+            frame,
+            text="Scegli file testuale…",
+            command=self._choose_parse_siatel_file,
+        ).grid(row=1, column=0, sticky="w", pady=(8, 4))
+
+        self.parse_siatel_file_label = ttk.Label(frame, text="(nessun file)")
+        self.parse_siatel_file_label.grid(row=2, column=0, sticky="w")
+
+        output_frame = ttk.Frame(frame)
+        output_frame.grid(row=3, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(output_frame, text="Nome output:").grid(row=0, column=0, padx=(0, 6))
+        ttk.Entry(output_frame, width=30, textvariable=self.parse_siatel_output_var).grid(
+            row=0, column=1, sticky="w"
+        )
+
+        self.parse_siatel_run_button = ttk.Button(
+            frame, text="Esegui Parse SIATEL", command=self._run_parse_siatel_script
+        )
+        self.parse_siatel_run_button.grid(row=4, column=0, pady=(12, 0), sticky="e")
+
     # ------------------------------------------------------------------ Helpers
     def _friendly_name(self, path: str | None) -> str:
         if not path:
@@ -864,6 +906,16 @@ class ScriptRunnerGUI(tk.Tk):
             if self.parse_json_file_label:
                 self.parse_json_file_label.config(text=self._friendly_name(absolute))
 
+    def _choose_parse_siatel_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona file testuale SIATEL", filetypes=TEXT_FILETYPES
+        )
+        if path:
+            absolute = os.path.abspath(path)
+            self.parse_siatel_file_var.set(absolute)
+            if self.parse_siatel_file_label:
+                self.parse_siatel_file_label.config(text=self._friendly_name(absolute))
+
     def _open_directory(self, directory: str) -> None:
         if not os.path.isdir(directory):
             os.makedirs(directory, exist_ok=True)
@@ -995,6 +1047,21 @@ class ScriptRunnerGUI(tk.Tk):
             output_name,
         ]
         self._execute_script("Parse JSON", args, self.parse_json_run_button)
+
+    def _run_parse_siatel_script(self) -> None:
+        file_path = self.parse_siatel_file_var.get().strip()
+        if not file_path:
+            messagebox.showwarning("Parse SIATEL", "Seleziona un file testuale SIATEL.")
+            return
+
+        output_name = self.parse_siatel_output_var.get().strip() or "result_siatel.xlsx"
+        args = [
+            "--file",
+            file_path,
+            "--output-name",
+            output_name,
+        ]
+        self._execute_script("Parse SIATEL", args, self.parse_siatel_run_button)
 
     def _run_address_script(self) -> None:
         file_path = self.address_file_var.get().strip()
@@ -1184,4 +1251,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
