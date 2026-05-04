@@ -215,6 +215,7 @@ def calcola_punteggio(row: pd.Series, rules: dict[str, int]) -> int:
 def scegli_erede_prevalente(group: pd.DataFrame) -> pd.DataFrame:
     result = group.copy()
     result["erede_prevalente"] = ""
+    result["verifica_indirizzo"] = ""
     validi = result[
         result["stato"].eq("trovato")
         & result["casistica_indirizzo"].ne("EREDE IRREPERIBILE")
@@ -226,7 +227,22 @@ def scegli_erede_prevalente(group: pd.DataFrame) -> pd.DataFrame:
 
     max_score = validi["punteggio_prevalenza"].max()
     candidati = validi[validi["punteggio_prevalenza"] == max_score].sort_index()
-    result.loc[candidati.index[0], "erede_prevalente"] = "EREDE PREVALENTE"
+    indice_prevalente = candidati.index[0]
+    result.loc[indice_prevalente, "erede_prevalente"] = "EREDE PREVALENTE"
+
+    score_prevalente = pd.to_numeric(
+        result.loc[indice_prevalente, "score_indirizzo"],
+        errors="coerce",
+    )
+    if pd.isna(score_prevalente):
+        score_prevalente = 0
+
+    if score_prevalente < 82:
+        altri_validi = validi.drop(index=indice_prevalente, errors="ignore")
+        score_altri = pd.to_numeric(altri_validi["score_indirizzo"], errors="coerce").fillna(0)
+        if score_altri.gt(55).any():
+            result.loc[indice_prevalente, "verifica_indirizzo"] = "DA CONTROLLARE"
+
     return result
 
 
